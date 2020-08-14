@@ -1,0 +1,254 @@
+---
+title: Distinctive collections by language, defined in relation to Worldcat and Ivy
+  Plus holdings
+author: "Adam Chandler"
+date: "`r format(Sys.time(), '%d %B %Y %H:%M')`"
+output:
+  html_document:
+    theme: cerulean
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+
+```{r}
+library(tidyverse)
+library(stringr)
+library(ggthemes)
+library(lubridate)
+library(openxlsx)
+library(readxl)
+library(janitor)
+library(rvest)
+library(DT)
+library(moderndive)
+library(purrr)
+
+```
+
+
+```{r cache=TRUE}
+# load data
+
+circ <- read_rds("data/cul_acq_circ_oclc_2001-2018.rds")
+
+# get LC language codes
+```
+
+
+```{r cache=TRUE }
+rawcodes <- read_html("https://www.loc.gov/marc/languages/language_code.html")
+
+languagelookup <- rawcodes %>%
+  html_node("table") %>%
+  html_table()
+
+```
+
+
+
+```{r}
+holdings_by_lang_code <- circ %>%
+  filter(!is.na(oclc_id_norm)) %>%
+  group_by(lang_code) %>%
+  summarize(n = n(),
+            mean_oclc = mean(oclc_inst_cnt),
+            mean_ivy = mean(ivy_plus_count),
+            percent_has_circulated = mean(has_circulated) * 100 ) %>%
+  mutate_if(is.numeric, round, digits = 2) %>%
+  left_join(languagelookup, by =c("lang_code" = "code")) %>%
+  select(language, everything())
+
+
+oneholding_by_lang_code <- circ %>%
+  filter(!is.na(oclc_id_norm)) %>%
+  filter(oclc_inst_cnt == 1) %>%
+  group_by(lang_code) %>%
+  summarize(cornell_only = n()) %>%
+  arrange(desc(cornell_only))
+
+cornell_only_per1000 <- holdings_by_lang_code %>%
+  left_join(oneholding_by_lang_code, by = "lang_code") %>%
+  mutate(cornell_only_ratio = cornell_only / n) %>%
+  mutate(cornell_only_per1000 = cornell_only_ratio * 1000) %>%
+  mutate_if(is.numeric, round, digits = 2) %>%
+  filter(n > 100) %>%
+  arrange(desc(cornell_only_per1000)) %>%
+  select(-cornell_only_ratio)
+
+```
+
+### Cornell Monograph Acquisitions 2001 - 2018
+
+The purpose of this experiment is to link a 1.487 million record dataset of Cornell's 2001 - 2018 monograph acquisitions with corresponding OCLC Worldcat holdings, then group the holdings by language of the material, to measure the extent to which the collection we are building (in each language) is distinctive. A great deal of effort was put into compiling this dataset. This is the first time we've used it to inform our conversation around distinctive collections.
+
+### Variables
+
+language: language of the material as coded in the MARC record
+
+n = number of monograph titles collected by Cornell in the 2001 - 2018 time period
+
+cornell_only = number of titles collected that are owned only by Cornell
+
+cornell_only_per1000 = (cornell_only / number of items collected) * 1000
+
+percent_has_circulated = percentage of titles that have circulated at least once
+
+mean_ivy = average number of copies across Ivy Plus. For a group of titles we take the total number of Ivy Plus libraries that hold titles in the set (for example, Khmer language books) and divide by the number of titles. An average that is close to 1 means that few other libraries hold the same titles; a high average means many of libraries hold the same titles.
+
+mean_oclc = average number of copies across all OCLC libraries. For a group of titles we take the total number of OCLC WorldCat libraries that hold titles in the set (for example, Khmer language books) and divide by the number of titles. An average that is close to 1 means that few other libraries hold the same titles; a high average means many of libraries hold the same titles.
+
+<br><br>
+
+
+```{r}
+
+cornell_only_per1000 %>%
+  select(language, n, cornell_only, cornell_only_per1000, percent_has_circulated, mean_ivy, mean_oclc) %>%
+  mutate_if(is.numeric, round, digits = 1) %>%
+  datatable()
+
+```
+
+
+### Case study: Khmer
+
+During these two decades, TABLE 1 shows that Cornell added 1232 Khmer language books to the collection.  817 of these are only held by Cornell, which means for every 1000 books we acquired in this language, 663 are unique to Cornell. Continuing with this example, 11% of them circulated, the average holdings across Ivy Plus libraries is 1.12 and the average number of libraries in Worldcat that hold these titles is 1.78. 
+
+How many Khmer books have circulated? 
+
+```{r}
+circ %>%
+  filter(lang_code == "khm") %>%
+  group_by(has_circulated) %>%
+  count()
+
+```
+
+How many Khmer books that have not circulated are held only by Cornell?
+
+```{r echo=TRUE}
+circ %>%
+  filter(lang_code == "khm",
+         has_circulated == 0,
+         oclc_inst_cnt == 1) %>%
+  count()
+
+```
+
+
+By these criteria, Khmer is indeed a distinctive Cornell collection.
+
+```{r}
+
+number_titles_nocirc_onlycornell <- circ %>%
+  filter(has_circulated == 0,
+         oclc_inst_cnt == 1) %>%
+  group_by(lang_code) %>%
+  summarize(n = n(),
+            n_without_circ = n - sum(has_circulated)) %>%
+  arrange(desc(n_without_circ)) %>%
+  summarize(total = sum(n_without_circ))
+```
+
+### Questions
+
+1. How can we connect readers to these materials? Across all the languages that we acquired during this time period, there are `r as.integer(number_titles_nocirc_onlycornell)` books that held only by Cornell AND have never circulated. The implications are fascinating. There is a high chance that the only people who have ever read these materials are the authors, publishers, and the few individuals who purchased copies. 
+2. Are there stategies used by archivists, to promote archival collections to local, national, and international communities which could be considered for these circulating materials?
+3. Can we imagine a better quantitative definition of distinctive collection that retains the simplicty of cornell_only_per1000?
+
+
+
+<br><br><br>
+
+
+
+```{r}
+
+holdings_by_lang_code_lc <- circ %>%
+  filter(!is.na(oclc_id_norm)) %>%
+  group_by(lang_code, lcclass) %>%
+  summarize(n = n(),
+            mean_oclc = mean(oclc_inst_cnt),
+            mean_ivy = mean(ivy_plus_count),
+            percent_has_circulated = mean(has_circulated) * 100 ) %>%
+  mutate_if(is.numeric, round, digits = 2) %>%
+  left_join(languagelookup, by =c("lang_code" = "code")) %>%
+  select(language, everything())
+
+oneholding_by_lang_code_lc <- circ %>%
+  filter(!is.na(oclc_id_norm)) %>%
+  filter(oclc_inst_cnt == 1) %>%
+  group_by(lang_code, lcclass) %>%
+  summarize(cornell_only = n()) %>%
+  arrange(desc(cornell_only))
+
+cornell_only_per1000_lc <- holdings_by_lang_code_lc %>%
+  #left_join(oneholding_by_lang_code_lc, by = "lang_code") %>%
+  left_join(oneholding_by_lang_code_lc, by = c("lang_code" = "lang_code", "lcclass" = "lcclass")) %>%
+  #by = c("x" = "x2", "y" = "y2")
+  mutate(cornell_only_ratio = cornell_only / n) %>%
+  mutate(cornell_only_per1000 = cornell_only_ratio * 1000) %>%
+  mutate_if(is.numeric, round, digits = 2) %>%
+  filter(n > 50) %>%
+  arrange(desc(cornell_only_per1000)) %>%
+  select(-cornell_only_ratio)
+
+```
+
+<br>
+
+
+### Appendex 1: Language code and LC class
+
+
+
+```{r}
+
+
+cornell_only_per1000_lc %>%
+  ungroup() %>%
+  select(language, lcclass, n, cornell_only, cornell_only_per1000, percent_has_circulated, mean_ivy, mean_oclc) %>%
+  mutate_if(is.numeric, round, digits = 1) %>%
+  datatable(filter = 'top', options = list(
+  pageLength = 15, autoWidth = TRUE
+))
+
+```
+
+<br>
+
+
+### Appendex 2: Language and LC class circulation by borrower category
+
+<br>
+
+
+```{r}
+
+circ %>%
+  group_by(lang_code, lcclass) %>%
+  summarize(n = n(),
+            titles_circulated = sum(has_circulated), 
+            total_charges = sum(sum_total_of_charge_count),
+            total_borrow_direct = sum(sum_borrow_direct), 
+            total_ill = sum(sum_interlibrary_loan),
+            total_cornell = total_charges - (total_borrow_direct + total_ill),
+            charges_per_titlesacquired = total_charges / n) %>%
+  left_join(cornell_only_per1000_lc, by = c("lang_code" = "lang_code", "lcclass" = "lcclass")) %>%
+  filter(!is.na(language)) %>%
+  ungroup() %>%
+  select(language, lcclass, n.x, titles_circulated, total_charges, charges_per_titlesacquired, total_cornell, total_borrow_direct, total_ill) %>%
+  mutate_if(is.numeric, round, digits = 2) %>%
+  rename(n = n.x) %>%
+  arrange(desc(charges_per_titlesacquired)) %>%
+  datatable(filter = 'top', options = list(
+  pageLength = 15, autoWidth = TRUE
+))
+
+```
+
+<br><br><br>
