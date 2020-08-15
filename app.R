@@ -28,8 +28,10 @@ cul_acq_db_con <- dbConnect(SQLite(), dbname = cul_acq_db_file)
 
 
 ######################################  ADAM RPUB DOC #######################################
-circ <- dbReadTable(cul_acq_db_con, "OCLCdataset")
-
+#circ <- dbReadTable(cul_acq_db_con, "OCLCdataset")
+circ <- tbl(cul_acq_db_con, "OCLCdataset")
+languagelookup <- tbl(cul_acq_db_con, "languagelookup")
+#circ <- collect(circ1)
 
 
 #rawcodes <- read_html("https://www.loc.gov/marc/languages/language_code.html")
@@ -116,7 +118,7 @@ server <- function(input, output) {
     #     html_node("table") %>%
     #     html_table()
     
-    languagelookup <- read_rds("data/languagelookup.rds")
+    #languagelookup <- read_rds("data/languagelookup.rds")
     
     
     
@@ -154,6 +156,7 @@ server <- function(input, output) {
         cornell_only_per1000 %>%
             select(language, n, cornell_only, cornell_only_per1000, percent_has_circulated, mean_ivy, mean_oclc) %>%
             mutate_if(is.numeric, round, digits = 1) %>%
+            collect() %>% 
             datatable()
         
     })
