@@ -60,6 +60,10 @@ ui <- dashboardPage(skin = "red",
             menuItem("Cornell holdings by language", icon = icon("language"), tabName = "cu_only_tab"
                      ),
             menuItem("Case Study: Khmer", icon = icon("globe-asia"), tabName = "khmer_tab"
+                     ),
+            menuItem("Appendix 1", icon = icon("info"), tabName = "lang_code_lcclass"
+                     ),
+            menuItem("Appendix 2", icon = icon("info"), tabName = "lang_lcclass_borrower"
                      )
             )
         ),
@@ -101,6 +105,16 @@ ui <- dashboardPage(skin = "red",
                         br(),
                         p("How many Khmer books that have not circulated are held only by Cornell?"),
                         tableOutput("khmer_no_circ")
+                    ),
+                tabItem("lang_code_lcclass",
+                        h3("Appendix 1: Language code and LC class"),
+                        br(),
+                        dataTableOutput("appendix_one")
+                    ),
+                tabItem("lang_lcclass_borrower",
+                        h3("Appendix 2: Language and LC class circulation by borrower category"),
+                        br(),
+                        dataTableOutput("appendix_two")
                     )
                 )
         )
@@ -185,6 +199,84 @@ server <- function(input, output) {
     ######################################  ADAM RPUB DOC #######################################  
     
     
+    
+    ###################################### Appendix One  ########################################
+    
+    holdings_by_lang_code_lc <- circ %>%
+        filter(!is.na(oclc_id_norm)) %>%
+        group_by(lang_code, lcclass) %>%
+        summarize(n = n(),
+                  mean_oclc = mean(oclc_inst_cnt),
+                  mean_ivy = mean(ivy_plus_count),
+                  percent_has_circulated = mean(has_circulated) * 100 ) %>%
+        mutate_if(is.numeric, round, digits = 2) %>%
+        left_join(languagelookup, by =c("lang_code" = "code")) %>%
+        select(language, everything())
+    
+    oneholding_by_lang_code_lc <- circ %>%
+        filter(!is.na(oclc_id_norm)) %>%
+        filter(oclc_inst_cnt == 1) %>%
+        group_by(lang_code, lcclass) %>%
+        summarize(cornell_only = n()) %>%
+        arrange(desc(cornell_only))
+    
+    cornell_only_per1000_lc <- holdings_by_lang_code_lc %>%
+        #left_join(oneholding_by_lang_code_lc, by = "lang_code") %>%
+        left_join(oneholding_by_lang_code_lc, by = c("lang_code" = "lang_code", "lcclass" = "lcclass")) %>%
+        #by = c("x" = "x2", "y" = "y2")
+        mutate(cornell_only_ratio = cornell_only / n) %>%
+        mutate(cornell_only_per1000 = cornell_only_ratio * 1000) %>%
+        mutate_if(is.numeric, round, digits = 2) %>%
+        filter(n > 50) %>%
+        arrange(desc(cornell_only_per1000)) %>%
+        select(-cornell_only_ratio)
+    
+    output$appendix_one <- renderDataTable({ 
+        
+       cornell_only_per1000_lc %>%
+            ungroup() %>%
+            select(language, lcclass, n, cornell_only, cornell_only_per1000, percent_has_circulated, mean_ivy, mean_oclc) %>%
+            mutate_if(is.numeric, round, digits = 1) %>%
+            
+            collect() %>% 
+            
+            datatable(filter = 'top', options = list(
+                pageLength = 15, autoWidth = TRUE
+            ))
+        
+    })
+    
+    ###################################### Appendix Two  ########################################
+    
+    
+    output$appendix_two <- renderDataTable({
+        
+        circ %>%
+            group_by(lang_code, lcclass) %>%
+            summarize(n = n(),
+                      titles_circulated = sum(has_circulated), 
+                      total_charges = sum(sum_total_of_charge_count),
+                      total_borrow_direct = sum(sum_borrow_direct), 
+                      total_ill = sum(sum_interlibrary_loan)) %>% 
+                      #total_cornell = total_charges - (total_borrow_direct + total_ill),
+                      #charges_per_titlesacquired = total_charges / n) %>% 
+            mutate(total_cornell = total_charges - (total_borrow_direct + total_ill),
+                   charges_per_titlesacquired = total_charges / n) %>% 
+            left_join(cornell_only_per1000_lc, by = c("lang_code" = "lang_code", "lcclass" = "lcclass")) %>%
+            filter(!is.na(language)) %>%
+            ungroup() %>%
+            select(language, lcclass, n.x, titles_circulated, total_charges, charges_per_titlesacquired, total_cornell, total_borrow_direct, total_ill) %>%
+            mutate_if(is.numeric, round, digits = 2) %>%
+            rename(n = n.x) %>%
+            arrange(desc(charges_per_titlesacquired)) %>%
+
+            collect() %>%
+
+            datatable(filter = 'top', options = list(
+                pageLength = 15, autoWidth = TRUE
+            ))
+        
+    })
     
     
 
